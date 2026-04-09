@@ -4,7 +4,6 @@
 
 Automate the tedious part of video editing. Our AI engine analyzes your A-Roll, B-Roll, and Drone footage to build a professional, beat-synced, and color-ready timeline in DaVinci Resolve in seconds.
 
-![Logo](davinci_ai_logo_options_1775746491107.png)
 
 ## ✨ Key Features
 
