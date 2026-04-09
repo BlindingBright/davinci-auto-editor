@@ -1,0 +1,6 @@
+faster-whisper
+opencv-python
+yt-dlp
+imageio[ffmpeg]
+ffmpeg-python
+librosa
