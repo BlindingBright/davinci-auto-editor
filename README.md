@@ -16,7 +16,7 @@ Automate the tedious part of video editing. Our AI engine analyzes your A-Roll, 
 
 ## 🚀 Quick Start
 
-1. **Download the Installer**: Grab the latest `.msi` from the [Releases](https://github.com/zoest/davinci-auto-editor-ai/releases) page.
+1. **Download the Installer**: Grab the latest `.msi` from the [Releases](https://github.com/BlindingBright/davinci-auto-editor/releases) page.
 2. **Open DaVinci Resolve**: Ensure DaVinci Resolve is open and a project is active.
 3. **Run the App**: 
    - Point to your A-Roll, B-Roll, and Drone footage folders.
