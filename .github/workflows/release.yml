@@ -1,0 +1,110 @@
+name: Build & Release
+
+# Trigger on version tags (e.g. v0.1.0, v1.2.3)
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Required to create the GitHub Release
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows Installer
+    runs-on: windows-latest
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Toolchains ────────────────────────────────────────────────────
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Rust stable (MSVC)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      # ── 3. Python — install deps + build ML backend ──────────────────────
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller pillow
+          pip install -r python/requirements.txt
+
+      - name: Build Python ML backend (PyInstaller one-file)
+        run: pyinstaller ml_backend.spec --distpath dist_py --workpath build_py
+
+      - name: Verify ML backend binary exists
+        run: |
+          if (!(Test-Path "dist_py\ml_backend.exe")) {
+            Write-Error "PyInstaller did not produce ml_backend.exe"
+            exit 1
+          }
+          Write-Host "ml_backend.exe size: $((Get-Item 'dist_py\ml_backend.exe').Length / 1MB) MB"
+        shell: pwsh
+
+      # ── 4. Stage sidecar for Tauri ───────────────────────────────────────
+      - name: Copy ML backend to Tauri sidecar location
+        shell: bash
+        run: |
+          mkdir -p src-tauri/binaries
+          cp dist_py/ml_backend.exe "src-tauri/binaries/ml_backend-x86_64-pc-windows-msvc.exe"
+          echo "Sidecar staged at: src-tauri/binaries/ml_backend-x86_64-pc-windows-msvc.exe"
+
+      # ── 5. Generate app icons ────────────────────────────────────────────
+      - name: Generate app icons
+        run: python scripts/generate_icons.py
+
+      # ── 6. Frontend dependencies ─────────────────────────────────────────
+      - name: Install npm dependencies
+        run: npm install
+
+      # ── 7. Build Tauri app + create GitHub Release ───────────────────────
+      - name: Build Tauri app and publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'DaVinci Auto-Editor AI ${{ github.ref_name }}'
+          releaseBody: |
+            ## DaVinci Auto-Editor AI ${{ github.ref_name }}
+
+            **The World's Most Powerful AI-Driven Assembly Engine for DaVinci Resolve.**
+
+            ### What's included
+            - `DaVinci.Auto-Editor.AI_x64_en-US.msi` — Windows installer (recommended)
+
+            ### How to install
+            1. Download the `.msi` file below
+            2. Run the installer — no manual Python setup required
+            3. Open DaVinci Resolve and make sure a project is active
+            4. Launch **DaVinci Auto-Editor AI**, point it to your footage folders, choose a style, and click **CONSTRUCT TIMELINE**
+
+            ### Requirements
+            - Windows 10/11 (x64)
+            - DaVinci Resolve 18+ installed and open
+
+            ---
+            *Built automatically from [`${{ github.sha }}`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})*
+          releaseDraft: false
+          prerelease: false

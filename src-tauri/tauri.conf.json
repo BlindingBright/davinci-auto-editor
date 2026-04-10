@@ -12,9 +12,15 @@
   "app": {
     "windows": [
       {
-        "title": "davinci_auto_editor",
-        "width": 800,
-        "height": 600
+        "label": "main",
+        "title": "DaVinci Auto-Editor AI",
+        "width": 1100,
+        "height": 820,
+        "minWidth": 900,
+        "minHeight": 680,
+        "center": true,
+        "decorations": true,
+        "resizable": true
       }
     ],
     "security": {
