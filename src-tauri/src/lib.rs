@@ -93,11 +93,11 @@ async fn init_setup(app: AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn start_edit(app: AppHandle, a_roll_path: String, b_roll_path: String, fpv_path: String, music_path: String, style: String, mix_ratio: u32, max_duration: u32) -> Result<String, String> {
+async fn start_edit(app: AppHandle, a_roll_path: String, b_roll_path: String, fpv_path: String, music_path: String, style: String, mix_ratio: u32, max_duration: u32, title_text: String, auto_render: bool, render_preset: String, output_dir: String) -> Result<String, String> {
     let python_dir = get_python_dir(&app)?;
     let venv_dir = python_dir.join("venv");
 
-    app.emit("log", "Launching DaVinci Resolve ML Engine...").unwrap_or_default();
+    app.emit("log", "🚀 Launching DaVinci Resolve AI Engine V2...").unwrap_or_default();
     let p_exe = venv_dir.join("Scripts").join("python.exe");
     let main_py = python_dir.join("main.py");
     
@@ -114,6 +114,20 @@ async fn start_edit(app: AppHandle, a_roll_path: String, b_roll_path: String, fp
     if !music_path.is_empty() {
         command = command.arg("--music_path").arg(&music_path);
     }
+
+    // V2.0: Title text
+    if !title_text.is_empty() {
+        command = command.arg("--title").arg(&title_text);
+    }
+
+    // V2.0: Auto-render
+    if auto_render {
+        command = command.arg("--render")
+            .arg("--render_preset").arg(&render_preset);
+        if !output_dir.is_empty() {
+            command = command.arg("--output_dir").arg(&output_dir);
+        }
+    }
         
     let (mut rx, mut _child) = command.spawn().map_err(|e| format!("Spawn Error: {}", e))?;
     
@@ -125,7 +139,7 @@ async fn start_edit(app: AppHandle, a_roll_path: String, b_roll_path: String, fp
         }
     }
     
-    app.emit("log", "Video successfully rendered in DaVinci Resolve!").unwrap_or_default();
+    app.emit("log", "✅ Pipeline complete!").unwrap_or_default();
     Ok("Finished pipeline".to_string())
 }
 

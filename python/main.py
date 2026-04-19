@@ -11,16 +11,26 @@ from motion_analyzer import MotionAnalyzer
 from music_fetcher import MusicFetcher
 from music_analyzer import MusicAnalyzer
 from transition_injector import inject_transitions
+from color_grader import ColorGrader
+from render_engine import RenderEngine
+from title_generator import TitleGenerator
+from scene_analyzer import SceneAnalyzer
+from sfx_engine import SFXEngine
 
 def setup_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="DaVinci Auto-Editor AI Engine")
+    parser = argparse.ArgumentParser(description="DaVinci Auto-Editor AI Engine V2")
     parser.add_argument("--aroll", type=str, default="", help="Path to A-Roll footage")
     parser.add_argument("--broll", type=str, default="", help="Path to B-Roll footage")
     parser.add_argument("--fpv", type=str, default="", help="Path to FPV drone footage")
-    parser.add_argument("--style", type=str, default="vlog", help="Editing style (vlog, reel, cinematic)")
+    parser.add_argument("--style", type=str, default="vlog", help="Editing style (vlog, reel, cinematic, hyper)")
     parser.add_argument("--mix_ratio", type=int, default=50, help="Ratio of A-Roll vs B-Roll")
     parser.add_argument("--max_duration", type=int, default=60, help="Max edit duration in seconds")
     parser.add_argument("--music_path", type=str, default="", help="Path to custom music")
+    # V2.0 additions
+    parser.add_argument("--title", type=str, default="", help="Intro title text (leave blank to skip)")
+    parser.add_argument("--render", action="store_true", help="Auto-render after assembly")
+    parser.add_argument("--render_preset", type=str, default="youtube_1080", help="Render preset (youtube_1080, youtube_4k, tiktok_vertical, instagram_square, prores_master)")
+    parser.add_argument("--output_dir", type=str, default="", help="Render output directory")
     return parser.parse_args()
 
 def _find_pool_item_by_name(media_pool: Any, filename: str) -> Optional[Any]:
@@ -48,14 +58,20 @@ def pools_contain(name: str, a, f, b) -> bool:
 
 
 def build_resolve_timeline(aroll_data: List[Dict], broll_dir: str, fpv_data: List[Dict], broll_data: List[Dict], 
-                           music_path: str, style: str, mix_ratio: int, max_duration: int) -> None:
+                           music_path: str, style: str, mix_ratio: int, max_duration: int,
+                           title_text: str = "") -> Any:
     """
-    The Round-Trip Engine:
+    The Round-Trip Engine V2:
       Phase 1 — Direct API builds a simple timeline (100% online, no transitions)
       Phase 2 — Resolve exports that timeline as FCPXML (paths from Resolve itself)
       Phase 3 — We inject native <transition> tags into the exported XML
       Phase 4 — Resolve re-imports the modified XML (native transitions + online)
       Phase 5 — VFX polish applied via API to the final timeline
+      Phase 6 — Auto Color Grading (LUT + CDL + grade propagation)
+      Phase 7 — Fusion Titles (intro + end card)
+      Phase 8 — One-Click Render & Export (handled externally)
+    
+    Returns the ResolveController for the render phase.
     """
     print("[Resolve] Initializing ResolveController...")
     controller = ResolveController()
@@ -381,12 +397,56 @@ def build_resolve_timeline(aroll_data: List[Dict], broll_dir: str, fpv_data: Lis
     if speaking_intervals:
         controller.apply_track_ducking(2, speaking_intervals)
 
+    # ---- SFX Layer (whoosh, impact, riser on Audio Track 3) ----
+    print("[Resolve] Placing SFX layer...")
+    sfx = SFXEngine(controller, style=style)
+    transition_count = len(placed_clips_info) - 1
+    if transition_count > 0:
+        fps = controller.timeline_fps
+        start_f = controller.timeline_start_frame
+        # Estimate transition frames from placed clip boundaries
+        transition_frames = []
+        cum_dur = 0.0
+        for i, (p_name, p_path) in enumerate(placed_clips_info[:-1]):
+            clip_dur = config.STYLE_CUT_LENGTHS.get(style, {}).get(p_name, 3.0)
+            cum_dur += clip_dur
+            transition_frames.append(start_f + int(cum_dur * fps))
+        sfx.place_transition_sfx(transition_frames)
+    if beat_times:
+        beat_frames = [controller.timeline_start_frame + int(t * controller.timeline_fps) for t in beat_times]
+        sfx.place_beat_sfx(beat_frames, burst_zones)
+
+    # =====================================================================
+    #  PHASE 6 — Auto Color Grading (LUTs + CDL + Grade Propagation)
+    # =====================================================================
+    print("[Resolve] Phase 6: Applying AI Color Grading...")
+    grader = ColorGrader(style=style)
+    grader.grade_timeline(controller, placed_clips_info)
+
+    # =====================================================================
+    #  PHASE 7 — Fusion Titles (Intro + End Card)
+    # =====================================================================
+    if title_text:
+        print(f"[Resolve] Phase 7: Generating Fusion Titles...")
+        titler = TitleGenerator(controller, style=style)
+        titler.insert_intro_title(title_text)
+        titler.insert_end_card()
+
+    # =====================================================================
+    #  Beat Markers & Chapter Markers
+    # =====================================================================
+    if beat_times:
+        print("[Resolve] Injecting beat markers for visual reference...")
+        controller.add_beat_markers(beat_times, burst_zones)
+
     print(f"[Resolve] SUCCESS: Assembly complete. {total_placed:.1f}s of professional, smooth footage.")
+    return controller  # Return controller for render phase
 
 
 def main() -> None:
     args = setup_args()
-    print("=== DaVinci Auto-Editor AI Pipeline ===")
+    print("=== DaVinci Auto-Editor AI Pipeline V2 ===")
+    print(f"    Style: {args.style} | Duration: {args.max_duration}s | Render: {args.render}")
     
     a_analyzer = AudioAnalyzer()
     aroll_data = a_analyzer.analyze_directory(args.aroll)
@@ -408,6 +468,18 @@ def main() -> None:
         for f in broll_files[:30]: # Fast Option A: only top 30
              broll_data.append(m_analyzer.analyze_clip(f))
 
+    # V2.0: Scene analysis for smarter clip selection
+    print("[AI] Running deep scene analysis (face detection, visual cohesion)...")
+    s_analyzer = SceneAnalyzer()
+    if args.broll:
+        broll_scene_data = s_analyzer.analyze_directory(args.broll)
+        # Sort B-Roll by visual similarity for smoother transitions
+        if broll_scene_data:
+            broll_data = s_analyzer.sort_by_visual_similarity(
+                [dict(d, **sd) for d, sd in zip(broll_data, broll_scene_data)] if len(broll_data) == len(broll_scene_data) else broll_data
+            )
+            print(f"[AI] B-Roll reordered for visual cohesion ({len(broll_data)} clips)")
+
     if args.music_path and os.path.exists(args.music_path):
         print(f"[AI] Using Custom Music track: {args.music_path}")
         music_path = args.music_path
@@ -415,8 +487,25 @@ def main() -> None:
         m_fetcher = MusicFetcher()
         music_path = m_fetcher.fetch_for_style(args.style)
     
-    build_resolve_timeline(aroll_data, args.broll, fpv_data, broll_data, music_path, 
-                           args.style, args.mix_ratio, args.max_duration)
+    controller = build_resolve_timeline(
+        aroll_data, args.broll, fpv_data, broll_data, music_path, 
+        args.style, args.mix_ratio, args.max_duration,
+        title_text=args.title
+    )
+    
+    # =====================================================================
+    #  PHASE 8 — One-Click Render & Export
+    # =====================================================================
+    if args.render and controller:
+        output_dir = args.output_dir or os.path.join(config.TEMP_DIR, "renders")
+        print(f"\n[Render] Phase 8: Auto-rendering to {output_dir}")
+        renderer = RenderEngine(controller)
+        success = renderer.render_preset(args.render_preset, output_dir)
+        if success:
+            print(f"[Render] Export complete! Check: {output_dir}")
+        else:
+            print(f"[Render] Warning: Render did not complete successfully")
+    
     print("\n[AI] Pipeline Finished successfully.")
 
 if __name__ == "__main__":

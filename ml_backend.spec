@@ -1,24 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec for the DaVinci Auto-Editor AI ML backend.
-# Run from repo root: pyinstaller ml_backend.spec
+
 
 a = Analysis(
-    ['python/main.py'],
+    ['python\\main.py'],
     pathex=[],
     binaries=[],
-    datas=[
-        ('python/assets', 'assets'),
-    ],
-    hiddenimports=[
-        'faster_whisper',
-        'ctranslate2',
-        'librosa',
-        'cv2',
-        'numpy',
-        'scipy',
-        'soundfile',
-        'audioread',
-    ],
+    datas=[],
+    hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
