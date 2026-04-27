@@ -47,20 +47,39 @@ async fn init_setup(app: AppHandle) -> Result<String, String> {
         let py_installer_path = std::env::temp_dir().join("python-3.11.9-amd64.exe");
         let py_installer_str = py_installer_path.to_str().unwrap();
         
-        let download_cmd = format!("Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe' -OutFile '{}'", py_installer_str);
-        
-        app.shell().command("powershell").arg("-Command").arg(&download_cmd).output().await.map_err(|e| e.to_string())?;
+        app.shell()
+            .command("curl")
+            .arg("-L")
+            .arg("https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe")
+            .arg("-o")
+            .arg(py_installer_str)
+            .output()
+            .await
+            .map_err(|e| e.to_string())?;
         
         app.emit("log", "Installing Python Silently. This might require Admin 'Yes'...").unwrap_or_default();
-        let install_cmd = format!("Start-Process -FilePath '{}' -ArgumentList '/quiet InstallAllUsers=0 PrependPath=1 Include_test=0' -Wait -NoNewWindow", py_installer_str);
-        app.shell().command("powershell").arg("-Command").arg(&install_cmd).output().await.map_err(|e| e.to_string())?;
+        app.shell()
+            .command(py_installer_str)
+            .arg("/quiet")
+            .arg("InstallAllUsers=0")
+            .arg("PrependPath=1")
+            .arg("Include_test=0")
+            .output()
+            .await
+            .map_err(|e| e.to_string())?;
         
         app.emit("log", "Python installed successfully!").unwrap_or_default();
     }
 
     app.emit("log", "Configuring DaVinci Resolve Environment Variables...").unwrap_or_default();
-    let env_cmd = "[Environment]::SetEnvironmentVariable('RESOLVE_SCRIPT_API', '%PROGRAMDATA%\\Blackmagic Design\\DaVinci Resolve\\Support\\Developer\\Scripting\\Modules', 'User')";
-    app.shell().command("powershell").arg("-Command").arg(env_cmd).output().await.ok();
+    app.shell()
+        .command("powershell")
+        .arg("-NoProfile")
+        .arg("-Command")
+        .arg("[Environment]::SetEnvironmentVariable('RESOLVE_SCRIPT_API', '%PROGRAMDATA%\\Blackmagic Design\\DaVinci Resolve\\Support\\Developer\\Scripting\\Modules', 'User')")
+        .output()
+        .await
+        .ok();
 
     let python_dir = get_python_dir(&app)?;
     let venv_dir = python_dir.join("venv");
